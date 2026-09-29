@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 use std::io;
 use std::io::Write;
-use std::slice;
 use std::str;
 
 use crate::other;
@@ -40,18 +39,13 @@ pub const PAX_GNUSPARSEREALSIZE: &str = "GNU.sparse.realsize";
 /// This iterator yields structures which can themselves be parsed into
 /// key/value pairs.
 pub struct PaxExtensions<'entry> {
-    data: slice::Split<'entry, u8, fn(&u8) -> bool>,
+    data: &'entry [u8],
 }
 
 impl<'entry> PaxExtensions<'entry> {
     /// Create new pax extensions iterator from the given entry data.
     pub fn new(a: &'entry [u8]) -> Self {
-        fn is_newline(a: &u8) -> bool {
-            *a == b'\n'
-        }
-        PaxExtensions {
-            data: a.split(is_newline),
-        }
+        PaxExtensions { data: a }
     }
 }
 
@@ -88,36 +82,33 @@ impl<'entry> Iterator for PaxExtensions<'entry> {
     type Item = io::Result<PaxExtension<'entry>>;
 
     fn next(&mut self) -> Option<io::Result<PaxExtension<'entry>>> {
-        let line = match self.data.next() {
-            Some([]) => return None,
-            Some(line) => line,
-            None => return None,
-        };
+        if self.data.is_empty() {
+            return None;
+        }
 
-        Some(
-            line.iter()
-                .position(|b| *b == b' ')
-                .and_then(|i| {
-                    str::from_utf8(&line[..i])
-                        .ok()
-                        .and_then(|len| len.parse::<usize>().ok().map(|j| (i + 1, j)))
-                })
-                .and_then(|(kvstart, reported_len)| {
-                    if line.len() + 1 == reported_len {
-                        line[kvstart..]
-                            .iter()
-                            .position(|b| *b == b'=')
-                            .map(|equals| (kvstart, equals))
-                    } else {
-                        None
-                    }
-                })
-                .map(|(kvstart, equals)| PaxExtension {
-                    key: &line[kvstart..kvstart + equals],
-                    value: &line[kvstart + equals + 1..],
-                })
-                .ok_or_else(|| other("malformed pax extension")),
-        )
+        // PAX values may contain newlines; only the byte count frames a record.
+        // Stop after an invalid record because its successor cannot be located.
+        let data = std::mem::take(&mut self.data);
+        let parsed = (|| {
+            let space = data.iter().position(|b| *b == b' ')?;
+            let digits = &data[..space];
+            if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+                return None;
+            }
+            let len = str::from_utf8(digits).ok()?.parse::<usize>().ok()?;
+            let record = data.get(..len)?.strip_suffix(b"\n")?;
+            let pair = record.get(space + 1..)?;
+            let equals = pair.iter().position(|b| *b == b'=')?;
+            if equals == 0 {
+                return None;
+            }
+            self.data = &data[len..];
+            Some(PaxExtension {
+                key: &pair[..equals],
+                value: &pair[equals + 1..],
+            })
+        })();
+        Some(parsed.ok_or_else(|| other("malformed pax extension")))
     }
 }
 
