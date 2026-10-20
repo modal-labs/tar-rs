@@ -527,20 +527,21 @@ impl<'a> EntryFields<'a> {
 
             if kind.is_hard_link() {
                 let link_src = match target_base {
-                    // If we're unpacking within a directory then ensure that
-                    // the destination of this hard link is both present and
-                    // inside our own directory. This is needed because we want
-                    // to make sure to not overwrite anything outside the root.
-                    //
-                    // Note that this logic is only needed for hard links
-                    // currently. With symlinks the `validate_inside_dst` which
-                    // happens before this method as part of `unpack_in` will
-                    // use canonicalization to ensure this guarantee. For hard
-                    // links though they're canonicalized to their existing path
-                    // so we need to validate at this time.
+                    // Validate the source separately from the destination checked
+                    // by unpack_in. On Linux, hard_link does not follow the final
+                    // symlink, so only its parent must resolve inside the root.
+                    // Canonicalizing the final component would reject links to
+                    // dangling symlinks or symlinks with absolute targets.
                     Some(p) => {
                         let link_src = p.join(src);
-                        self.validate_inside_dst(p, &link_src)?;
+                        let validate_src = if cfg!(target_os = "linux") {
+                            link_src
+                                .parent()
+                                .ok_or_else(|| other("hard link source has no parent"))?
+                        } else {
+                            &link_src
+                        };
+                        self.validate_inside_dst(p, validate_src)?;
                         link_src
                     }
                     None => src.into_owned(),
