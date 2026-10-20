@@ -11,8 +11,14 @@
 //!
 //! When unpacking archives ([`Archive::unpack`], [`Entry::unpack_in`]), a
 //! best-effort is made to prevent writing files outside the destination
-//! directory: paths containing `..` are rejected, and symlink targets within
-//! the archive are validated before use.
+//! directory: archive entry paths containing `..` are rejected, and parent
+//! directories are validated before use.
+//!
+//! On platforms where hard-link creation does not follow a final-component
+//! symlink, an archive hard link may create another name for a symlink inode.
+//! Its target may be dangling or outside the destination directory, just like
+//! an ordinary archive symlink. The hard-link source's parent and extraction
+//! destination remain subject to containment checks.
 //!
 //! **Concurrent mutation of the destination tree is outside the threat model.**
 //! If another process modifies the destination (for example, by atomically

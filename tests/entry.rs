@@ -119,6 +119,100 @@ fn absolute_link_deref_error() {
 }
 
 #[test]
+#[cfg(unix)]
+fn hardlinks_to_symlinks() {
+    use std::os::unix::fs::MetadataExt;
+
+    let td = Builder::new().prefix("tar").tempdir().unwrap();
+    let outside = td.path().join("outside");
+    std::fs::write(&outside, b"outside").unwrap();
+    let absolute_target = outside.to_str().unwrap();
+
+    for target in ["missing", absolute_target, "../outside", "source"] {
+        for unpack_entries in [false, true] {
+            let extract = Builder::new()
+                .prefix("extract")
+                .tempdir_in(td.path())
+                .unwrap();
+            let mut builder = tar::Builder::new(Vec::new());
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_entry_type(tar::EntryType::Symlink);
+            builder.append_link(&mut header, "source", target).unwrap();
+            header.set_entry_type(tar::EntryType::Link);
+            builder.append_link(&mut header, "alias", "source").unwrap();
+            let bytes = builder.into_inner().unwrap();
+            let mut archive = tar::Archive::new(&bytes[..]);
+            if unpack_entries {
+                for entry in archive.entries().unwrap() {
+                    assert!(entry.unwrap().unpack_in(extract.path()).unwrap());
+                }
+            } else {
+                archive.unpack(extract.path()).unwrap();
+            }
+            let source = extract.path().join("source");
+            let alias = extract.path().join("alias");
+            let source_metadata = source.symlink_metadata().unwrap();
+            let alias_metadata = alias.symlink_metadata().unwrap();
+            assert!(source_metadata.file_type().is_symlink());
+            assert!(alias_metadata.file_type().is_symlink());
+            assert_eq!(source_metadata.ino(), alias_metadata.ino());
+            assert_eq!(source_metadata.nlink(), 2);
+            assert_eq!(alias_metadata.nlink(), 2);
+            assert_eq!(source.read_link().unwrap(), std::path::Path::new(target));
+            assert_eq!(alias.read_link().unwrap(), std::path::Path::new(target));
+        }
+    }
+    assert_eq!(std::fs::read(outside).unwrap(), b"outside");
+}
+
+#[test]
+#[cfg(unix)]
+fn hardlink_source_cannot_escape_extraction_root() {
+    let td = Builder::new().prefix("tar").tempdir().unwrap();
+    std::fs::write(td.path().join("outside"), b"outside").unwrap();
+    std::os::unix::fs::symlink("outside", td.path().join("outside-link")).unwrap();
+
+    for source in ["parent/outside", "parent/outside-link", "../outside", "/"] {
+        for unpack_entries in [false, true] {
+            let extract = Builder::new()
+                .prefix("extract")
+                .tempdir_in(td.path())
+                .unwrap();
+            let mut builder = tar::Builder::new(Vec::new());
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_entry_type(tar::EntryType::Symlink);
+            builder.append_link(&mut header, "parent", "..").unwrap();
+            header.set_entry_type(tar::EntryType::Link);
+            builder.append_link(&mut header, "alias", source).unwrap();
+            let bytes = builder.into_inner().unwrap();
+            let mut archive = tar::Archive::new(&bytes[..]);
+            let result = if unpack_entries {
+                archive
+                    .entries()
+                    .unwrap()
+                    .try_for_each(|entry| entry?.unpack_in(extract.path()).map(|_| ()))
+            } else {
+                archive.unpack(extract.path())
+            };
+            let error = result.unwrap_err();
+            assert!(
+                format!("{error:?}").contains("trying to unpack outside"),
+                "{error}"
+            );
+            assert!(extract.path().join("alias").symlink_metadata().is_err());
+        }
+    }
+    assert_eq!(
+        std::fs::read(td.path().join("outside")).unwrap(),
+        b"outside"
+    );
+}
+
+#[test]
 fn relative_link_deref_error() {
     let mut ar = tar::Builder::new(Vec::new());
 
