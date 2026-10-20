@@ -119,7 +119,12 @@ fn absolute_link_deref_error() {
 }
 
 #[test]
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "macos"
+))]
 fn hardlinks_to_symlinks() {
     use std::os::unix::fs::MetadataExt;
 

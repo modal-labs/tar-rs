@@ -528,10 +528,9 @@ impl<'a> EntryFields<'a> {
             if kind.is_hard_link() {
                 let link_src = match target_base {
                     // Validate the source separately from the destination checked
-                    // by unpack_in. On Linux, Android, and FreeBSD, hard_link does
-                    // not follow the final symlink, so only its parent must resolve
-                    // inside the root. Rust 1.63 can fall back to a symlink-following
-                    // link() on old macOS, which needs full-source validation.
+                    // by unpack_in. On Linux, Android, FreeBSD, and macOS, hard_link
+                    // does not follow the final symlink, so only its parent must
+                    // resolve inside the root.
                     // Canonicalizing the final component would reject links to
                     // dangling symlinks or symlinks with absolute targets.
                     Some(p) => {
@@ -539,7 +538,8 @@ impl<'a> EntryFields<'a> {
                         let preserves_symlink = cfg!(any(
                             target_os = "linux",
                             target_os = "android",
-                            target_os = "freebsd"
+                            target_os = "freebsd",
+                            target_os = "macos"
                         ));
                         let validate_src = match link_src.parent() {
                             Some(parent) if preserves_symlink => parent,
