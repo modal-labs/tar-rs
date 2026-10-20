@@ -20,6 +20,8 @@ jobs:
   test:
     name: Test (${{ matrix.build }})
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: ${{ matrix.build == 'msrv' && 'fallback' || 'allow' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
