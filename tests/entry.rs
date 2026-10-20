@@ -119,7 +119,7 @@ fn absolute_link_deref_error() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd"))]
 fn hardlinks_to_symlinks() {
     use std::os::unix::fs::MetadataExt;
 
@@ -174,7 +174,7 @@ fn hardlink_source_cannot_escape_extraction_root() {
     std::fs::write(td.path().join("outside"), b"outside").unwrap();
     std::os::unix::fs::symlink("outside", td.path().join("outside-link")).unwrap();
 
-    for source in ["parent/outside", "parent/outside-link", "../outside"] {
+    for source in ["parent/outside", "parent/outside-link", "../outside", "/"] {
         for unpack_entries in [false, true] {
             let extract = Builder::new()
                 .prefix("extract")
